@@ -36,7 +36,43 @@ def init_database():
     print("✅ DATABASE YARATILDI")
 
 init_database()
+# ==================== MA'LUMOTLARNI SAQLASH ====================
+user_data = {}
 
+# ==================== ADMINGA XABAR YUBORISH ====================  ✅ QO'SHILADI
+@bot.message_handler(func=lambda message: message.text == '✍️ Adminga yozish')
+def start_message_to_admin(message):
+    user_id = message.chat.id
+    user_data[user_id] = {'step': 'writing_message_to_admin'}
+    bot.send_message(user_id, "📝 *Adminga xabaringizni yozing:*\n\nTaklif, shikoyat yoki savollaringiz bo'lsa yozib qoldiring.", parse_mode="Markdown")
+
+@bot.message_handler(func=lambda message: message.chat.id in user_data and user_data[message.chat.id]['step'] == 'writing_message_to_admin')
+def process_user_message(message):
+    user_id = message.chat.id
+    user_message = message.text
+    
+    # Foydalanuvchiga tasdiq
+    bot.send_message(user_id, "✅ *Xabaringiz adminga yuborildi!*\n\nTez orada javob olasiz.", parse_mode="Markdown")
+    
+    # Adminlarga xabar yuborish
+    for admin_id in ADMINS:
+        try:
+            bot.send_message(
+                admin_id,
+                f"📩 *YANGI FOYDALANUVCHI XABARI*\n\n"
+                f"👤 Foydalanuvchi ID: `{user_id}`\n"
+                f"📅 Vaqt: {datetime.now().strftime('%H:%M %d.%m.%Y')}\n"
+                f"💬 Xabar:\n{user_message}\n\n"
+                f"ℹ️ Javob berish uchun: /reply_{user_id}",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            print(f"Admin xabar xatosi: {e}")
+    
+    # Foydalanuvchi ma'lumotlarini tozalash
+    if user_id in user_data:
+        del user_data[user_id]
+        
 def get_db_connection():
     conn = sqlite3.connect('workers.db', check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -74,8 +110,8 @@ def set_webhook():
 def start(message):
     user_id = message.chat.id
     
-    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row('🚀 Start', '👨‍💼 Admin paneli')
+        markup.row('🚀 Start', '👨‍💼 Admin paneli')
+    markup.row('✍️ Adminga yozish')  # YANGI TUGMA
     
     bot.send_message(
         user_id,
@@ -419,6 +455,33 @@ def monthly_report(message):
         conn.close()
 
 # ==================== BOTNI ISHGA TUSHIRISH ====================
+# ==================== ADMIN JAVOB BERISH ====================
+@bot.message_handler(commands=['reply'])
+def admin_reply(message):
+    if message.chat.id not in ADMINS:
+        return
+    
+    try:
+        # /reply_123456789_Salom matni
+        command_parts = message.text.split('_', 2)
+        if len(command_parts) >= 3:
+            user_id = int(command_parts[1])
+            reply_text = command_parts[2]
+            
+            # Foydalanuvchiga javob yuborish
+            bot.send_message(
+                user_id,
+                f"📨 *Admin javobi:*\n\n{reply_text}\n\n——\nSizning xabaringizga javob",
+                parse_mode="Markdown"
+            )
+            
+            # Adminga tasdiq
+            bot.send_message(message.chat.id, f"✅ Javob {user_id} foydalanuvchiga yuborildi")
+        else:
+            bot.send_message(message.chat.id, "❌ Noto'g'ri format. Misol: /reply_123456789_Salom qaleysan")
+    
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Xato: {e}")
 if __name__ == "__main__":
     print("🌐 FLASK SERVER ISHGA TUSHMOQDA...")
     port = int(os.environ.get('PORT', 10000))
