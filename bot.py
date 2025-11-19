@@ -110,7 +110,8 @@ def set_webhook():
 def start(message):
     user_id = message.chat.id
     
-        markup.row('🚀 Start', '👨‍💼 Admin paneli')
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)  # ✅ YARATISH
+    markup.row('🚀 Start', '👨‍💼 Admin paneli')
     markup.row('✍️ Adminga yozish')  # YANGI TUGMA
     
     bot.send_message(
@@ -118,7 +119,8 @@ def start(message):
         "🤖 *XUSH KELIBSIZ!*\n\n"
         "Ishchi ma'lumotlarini to'plash botiga xush kelibsiz.\n\n"
         "🚀 *Start* - Ro'yxatdan o'tish\n"
-        "👨‍💼 *Admin paneli* - Admin tizimi",
+        "👨‍💼 *Admin paneli* - Admin tizimi\n"
+        "✍️ *Adminga yozish* - Taklif va savollar",  # ✅ YANGI QATOR
         parse_mode="Markdown",
         reply_markup=markup
     )
