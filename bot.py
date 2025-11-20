@@ -2,7 +2,9 @@ import os
 import json
 import telebot
 from flask import Flask, request
-from datetime import datetime
+from datetime import datetime, date
+import csv
+from io import StringIO
 
 # ==================== KONFIGURATSIYA ====================
 TOKEN = "8578005339:AAHg4HqHZbf4-F9DC8MLocMOtaLwr5eK04s"
@@ -15,22 +17,18 @@ print("🚀 BOT ISHGA TUSHMOQDA...")
 
 # ==================== MA'LUMOTLARNI SAQLASH ====================
 def get_db_path():
-    """JSON fayl joylashuvi"""
     return '/tmp/data.json' if os.path.exists('/tmp') else 'data.json'
 
 def save_user(user_id, user_data):
-    """Foydalanuvchi ma'lumotlarini saqlash"""
     try:
         file_path = get_db_path()
         
-        # Mavjud ma'lumotlarni o'qish
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except:
             data = {}
         
-        # Yangi ma'lumotni qo'shish
         data[str(user_id)] = {
             'full_name': user_data['full_name'],
             'birth_date': user_data['birth_date'],
@@ -40,18 +38,16 @@ def save_user(user_id, user_data):
             'registered_date': datetime.now().isoformat()
         }
         
-        # Faylga yozish
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         
-        print(f"✅ {user_id} saqlandi: {user_data['full_name']}")
+        print(f"✅ {user_id} saqlandi")
         return True
     except Exception as e:
         print(f"❌ Saqlash xatosi: {e}")
         return False
 
 def get_user(user_id):
-    """Foydalanuvchi ma'lumotlarini olish"""
     try:
         file_path = get_db_path()
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -61,13 +57,55 @@ def get_user(user_id):
         return None
 
 def get_all_users():
-    """Barcha foydalanuvchilar"""
     try:
         file_path = get_db_path()
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except:
         return {}
+
+def search_users(search_term):
+    """Foydalanuvchilarni qidirish"""
+    users = get_all_users()
+    results = {}
+    
+    for user_id, user_data in users.items():
+        if (search_term.lower() in user_data['full_name'].lower() or 
+            search_term.lower() in user_data['work_type'].lower() or 
+            search_term.lower() in user_data['position'].lower()):
+            results[user_id] = user_data
+    
+    return results
+
+def get_daily_stats():
+    """Kunlik statistika"""
+    users = get_all_users()
+    today = date.today().isoformat()
+    
+    daily_count = 0
+    for user_data in users.values():
+        if user_data['registered_date'][:10] == today:
+            daily_count += 1
+    
+    return {
+        'daily': daily_count,
+        'total': len(users)
+    }
+
+def get_monthly_stats():
+    """Oylik statistika"""
+    users = get_all_users()
+    current_month = date.today().strftime('%Y-%m')
+    
+    monthly_count = 0
+    for user_data in users.values():
+        if user_data['registered_date'][:7] == current_month:
+            monthly_count += 1
+    
+    return {
+        'monthly': monthly_count,
+        'total': len(users)
+    }
 
 # ==================== VAQTINCHA SAQLASH ====================
 user_sessions = {}
@@ -97,8 +135,7 @@ def start(message):
     
     bot.send_message(
         user_id,
-        "🤖 *XUSH KELIBSIZ!*\n\n"
-        "Ishchi ma'lumotlarini to'plash botiga xush kelibsiz.",
+        "🤖 *XUSH KELIBSIZ!*",
         parse_mode="Markdown",
         reply_markup=markup
     )
@@ -108,50 +145,38 @@ def start(message):
 def start_registration(message):
     user_id = message.chat.id
     
-    # Oldin ro'yxatdan o'tganmi tekshirish
     existing_user = get_user(user_id)
     if existing_user:
         bot.send_message(
             user_id, 
-            "✅ *Siz allaqachon ro'yxatdan o'tgansiz!*\n\n"
-            f"👤 Ism: {existing_user['full_name']}\n"
-            f"📅 Sana: {existing_user['birth_date']}\n\n"
-            "Ma'lumotlaringizni ko'rish uchun \"👤 Mening maʼlumotlarim\" tugmasini bosing.",
+            "✅ *Siz allaqachon ro'yxatdan o'tgansiz!*",
             parse_mode="Markdown"
         )
         return
     
-    # Yangi ro'yxatdan o'tish
     user_sessions[user_id] = {'step': 'full_name'}
-    
-    bot.send_message(
-        user_id,
-        "👋 *Ro'yxatdan o'tish boshlandi!*\n\n"
-        "Quyidagi ma'lumotlarni ketma-ket kiriting:",
-        parse_mode="Markdown"
-    )
-    bot.send_message(user_id, "1️⃣ *Familiya Ism Sharifingizni* kiriting:", parse_mode="Markdown")
+    bot.send_message(user_id, "1️⃣ *Ism Familiyangiz:*", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.chat.id in user_sessions and user_sessions[message.chat.id]['step'] == 'full_name')
 def process_full_name(message):
     user_id = message.chat.id
     user_sessions[user_id]['full_name'] = message.text
     user_sessions[user_id]['step'] = 'birth_date'
-    bot.send_message(user_id, "2️⃣ *Tug'ilgan sanangizni* kiriting (01.01.1990):", parse_mode="Markdown")
+    bot.send_message(user_id, "2️⃣ *Tug'ilgan sana:* (01.01.1990)", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.chat.id in user_sessions and user_sessions[message.chat.id]['step'] == 'birth_date')
 def process_birth_date(message):
     user_id = message.chat.id
     user_sessions[user_id]['birth_date'] = message.text
     user_sessions[user_id]['step'] = 'work_type'
-    bot.send_message(user_id, "3️⃣ *Qaysi ish turi* bo'yicha kelgansiz?\n(Masalan: Qurilish, IT, Savdo):", parse_mode="Markdown")
+    bot.send_message(user_id, "3️⃣ *Ish turi:*", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.chat.id in user_sessions and user_sessions[message.chat.id]['step'] == 'work_type')
 def process_work_type(message):
     user_id = message.chat.id
     user_sessions[user_id]['work_type'] = message.text
     user_sessions[user_id]['step'] = 'position'
-    bot.send_message(user_id, "4️⃣ *Lavozimingizni* kiriting:", parse_mode="Markdown")
+    bot.send_message(user_id, "4️⃣ *Lavozim:*", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.chat.id in user_sessions and user_sessions[message.chat.id]['step'] == 'position')
 def process_position(message):
@@ -164,8 +189,7 @@ def process_position(message):
     
     bot.send_message(
         user_id,
-        "5️⃣ *O'zingizning selfi suratingizni* yuboring:\n\n"
-        "Agar rasm yubormasangiz, \"🚀 Rasm siz saqlash\" tugmasini bosing.",
+        "5️⃣ *Selfi suratingizni yuboring:*",
         parse_mode="Markdown",
         reply_markup=markup
     )
@@ -186,24 +210,18 @@ def process_photo(message):
         complete_registration(user_id)
 
 def complete_registration(user_id):
-    """Ro'yxatdan o'tishni yakunlash"""
     user_data = user_sessions[user_id]
     
-    # Ma'lumotlarni saqlash
     success = save_user(user_id, user_data)
     
     if success:
-        # Foydalanuvchiga xabar
         bot.send_message(
             user_id,
-            "✅ *TABRIKLAYMIZ!*\n\n"
-            "Ma'lumotlaringiz muvaffaqiyatli saqlandi.\n"
-            "Ro'yxatdan o'tish yakunlandi!",
+            "✅ *Ma'lumotlaringiz saqlandi!*",
             parse_mode="Markdown",
             reply_markup=telebot.types.ReplyKeyboardRemove()
         )
         
-        # Adminlarga bildirishnoma
         for admin_id in ADMINS:
             try:
                 bot.send_message(
@@ -212,22 +230,18 @@ def complete_registration(user_id):
                     f"👤 {user_data['full_name']}\n"
                     f"📅 {user_data['birth_date']}\n"
                     f"🏢 {user_data['work_type']}\n"
-                    f"💼 {user_data['position']}\n"
-                    f"🆔 {user_id}\n"
-                    f"📸 Rasm: {'✅ Bor' if user_data.get('photo_file_id') else '❌ Yoq'}",
+                    f"💼 {user_data['position']}",
                     parse_mode="Markdown"
                 )
-            except Exception as e:
-                print(f"Admin xabari: {e}")
+            except:
+                pass
     else:
-        bot.send_message(user_id, "❌ Ma'lumotlarni saqlashda xatolik!")
+        bot.send_message(user_id, "❌ Xatolik!")
     
-    # Sessiyani tozalash
     if user_id in user_sessions:
         del user_sessions[user_id]
     
-    # Asosiy menyuni qaytarish
-    start(message)
+    start(bot.send_message(user_id, "Bosh menyu:"))
 
 # ==================== SHAXSIY KABINET ====================
 @bot.message_handler(func=lambda message: message.text == '👤 Mening maʼlumotlarim')
@@ -236,18 +250,15 @@ def personal_cabinet(message):
     
     user_data = get_user(user_id)
     if not user_data:
-        bot.send_message(user_id, "❌ Siz hali ro'yxatdan o'tmagansiz!")
+        bot.send_message(user_id, "❌ Siz ro'yxatdan o'tmagansiz!")
         return
     
     info_text = (
         f"👤 *SHAXSIY KABINET*\n\n"
-        f"🆔 ID: {user_id}\n"
         f"👤 FISh: *{user_data['full_name']}*\n"
         f"📅 Tug'ilgan sana: {user_data['birth_date']}\n"
         f"🏢 Ish turi: {user_data['work_type']}\n"
-        f"💼 Lavozim: {user_data['position']}\n"
-        f"📅 Ro'yxatdan o'tgan: {user_data['registered_date'][:10]}\n\n"
-        f"✅ Ma'lumotlaringiz saqlangan"
+        f"💼 Lavozim: {user_data['position']}"
     )
     
     if user_data.get('photo_file_id'):
@@ -268,13 +279,13 @@ def admin_panel(message):
         return
     
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row('👥 Barcha foydalanuvchilar', '📊 Statistika')
-    markup.row('🔙 Asosiy menyu')
+    markup.row('👥 Barcha foydalanuvchilar', '🔍 Qidirish')
+    markup.row('📊 Kunlik hisobot', '📈 Oylik hisobot')
+    markup.row('📥 CSV yuklab olish', '🔙 Asosiy menyu')
     
     bot.send_message(
         user_id,
-        "👨‍💼 *ADMIN PANEL*\n\n"
-        "Quyidagi tugmalardan birini tanlang:",
+        "👨‍💼 *ADMIN PANEL*",
         parse_mode="Markdown",
         reply_markup=markup
     )
@@ -287,37 +298,114 @@ def all_users(message):
     users = get_all_users()
     
     if not users:
-        bot.send_message(message.chat.id, "📭 Hozircha hech qanday foydalanuvchi yo'q")
+        bot.send_message(message.chat.id, "📭 Hozircha foydalanuvchilar yo'q")
         return
     
-    bot.send_message(message.chat.id, f"👥 *JAMI FOYDALANUVCHILAR: {len(users)} ta*", parse_mode="Markdown")
+    bot.send_message(message.chat.id, f"👥 *JAMI: {len(users)} ta*", parse_mode="Markdown")
     
-    for user_id, user_data in list(users.items())[:10]:  # Birinchi 10 tasi
-        user_info = (
-            f"👤 *{user_data['full_name']}*\n"
-            f"📅 {user_data['birth_date']}\n"
-            f"🏢 {user_data['work_type']}\n"
-            f"💼 {user_data['position']}\n"
-            f"🆔 {user_id}"
-        )
-        bot.send_message(message.chat.id, user_info, parse_mode="Markdown")
+    for user_id, user_data in list(users.items())[:5]:  # Faqat 5 tasi
+        user_info = f"👤 {user_data['full_name']}\n📅 {user_data['birth_date']}\n🏢 {user_data['work_type']}\n💼 {user_data['position']}"
+        bot.send_message(message.chat.id, user_info)
 
-@bot.message_handler(func=lambda message: message.text == '📊 Statistika')
-def statistics(message):
+@bot.message_handler(func=lambda message: message.text == '🔍 Qidirish')
+def search_start(message):
+    if message.chat.id not in ADMINS:
+        return
+    
+    msg = bot.send_message(message.chat.id, "🔍 *Qidirish uchun so'z kiriting:*", parse_mode="Markdown")
+    bot.register_next_step_handler(msg, process_search)
+
+def process_search(message):
+    if message.chat.id not in ADMINS:
+        return
+    
+    search_term = message.text
+    if not search_term:
+        bot.send_message(message.chat.id, "❌ Iltimos, so'z kiriting!")
+        return
+    
+    results = search_users(search_term)
+    
+    if not results:
+        bot.send_message(message.chat.id, f"❌ '{search_term}' bo'yicha natija topilmadi")
+        return
+    
+    bot.send_message(message.chat.id, f"🔍 *Natijalar: {len(results)} ta*", parse_mode="Markdown")
+    
+    for user_id, user_data in list(results.items())[:5]:  # Faqat 5 tasi
+        user_info = f"👤 {user_data['full_name']}\n📅 {user_data['birth_date']}\n🏢 {user_data['work_type']}\n💼 {user_data['position']}"
+        bot.send_message(message.chat.id, user_info)
+
+@bot.message_handler(func=lambda message: message.text == '📊 Kunlik hisobot')
+def daily_report(message):
+    if message.chat.id not in ADMINS:
+        return
+    
+    stats = get_daily_stats()
+    
+    report_text = (
+        f"📊 *KUNLIK HISOBOT*\n\n"
+        f"📈 Bugun qo'shilgan: *{stats['daily']} ta*\n"
+        f"📊 Jami foydalanuvchilar: *{stats['total']} ta*\n"
+        f"📅 Sana: {date.today().strftime('%d.%m.%Y')}"
+    )
+    
+    bot.send_message(message.chat.id, report_text, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda message: message.text == '📈 Oylik hisobot')
+def monthly_report(message):
+    if message.chat.id not in ADMINS:
+        return
+    
+    stats = get_monthly_stats()
+    
+    report_text = (
+        f"📈 *OYLIK HISOBOT*\n\n"
+        f"📈 Bu oy qo'shilgan: *{stats['monthly']} ta*\n"
+        f"📊 Jami foydalanuvchilar: *{stats['total']} ta*\n"
+        f"📅 Oy: {date.today().strftime('%B %Y')}"
+    )
+    
+    bot.send_message(message.chat.id, report_text, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda message: message.text == '📥 CSV yuklab olish')
+def download_csv(message):
     if message.chat.id not in ADMINS:
         return
     
     users = get_all_users()
-    total = len(users)
     
-    stat_text = (
-        f"📊 *BOT STATISTIKASI*\n\n"
-        f"👥 Jami foydalanuvchilar: {total} ta\n"
-        f"📅 Hisobot vaqti: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
-        f"✅ Bot to'liq ishlayapti!"
+    if not users:
+        bot.send_message(message.chat.id, "❌ Yuklab olish uchun ma'lumot yo'q")
+        return
+    
+    # CSV yaratish
+    csv_data = StringIO()
+    csv_writer = csv.writer(csv_data)
+    
+    # Sarlavha
+    csv_writer.writerow(['ID', 'FISh', 'Tugilgan sana', 'Ish turi', 'Lavozim', 'Roʻyxatdan oʻtgan sana'])
+    
+    # Ma'lumotlar
+    for user_id, user_data in users.items():
+        csv_writer.writerow([
+            user_id,
+            user_data['full_name'],
+            user_data['birth_date'],
+            user_data['work_type'],
+            user_data['position'],
+            user_data['registered_date'][:10]
+        ])
+    
+    csv_data.seek(0)
+    
+    # Fayl yuborish
+    bot.send_document(
+        message.chat.id,
+        csv_data.getvalue().encode('utf-8'),
+        visible_file_name=f'foydalanuvchilar_{date.today()}.csv',
+        caption=f"📊 Jami: {len(users)} ta foydalanuvchi"
     )
-    
-    bot.send_message(message.chat.id, stat_text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.text == '🔙 Asosiy menyu')
 def back_to_main(message):
@@ -335,22 +423,18 @@ def process_admin_message(message):
     user_id = message.chat.id
     user_message = message.text
     
-    # Adminlarga yuborish
     for admin_id in ADMINS:
         try:
             bot.send_message(
                 admin_id,
-                f"📩 *YANGI XABAR*\n\n"
-                f"👤 Foydalanuvchi: {user_id}\n"
-                f"💬 Xabar: {user_message}",
+                f"📩 *YANGI XABAR*\n\n👤 {user_id}\n💬 {user_message}",
                 parse_mode="Markdown"
             )
-        except Exception as e:
-            print(f"Admin xabari: {e}")
+        except:
+            pass
     
-    bot.send_message(user_id, "✅ Xabaringiz adminga yuborildi!")
+    bot.send_message(user_id, "✅ Xabar yuborildi!")
     
-    # Sessiyani tozalash
     if user_id in user_sessions:
         del user_sessions[user_id]
 
